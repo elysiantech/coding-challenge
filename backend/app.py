@@ -13,6 +13,10 @@ dotenv.load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
+# Dictionary to store job statuses
+tasks: Dict[str, Dict] = {}
+
+
 # TODO: Implement version tracking
 VERSION = "1.0.0"
 
@@ -64,16 +68,6 @@ def categorize_transcription(job_id: str, text: str, aiProvider: str):
     except Exception as e:
         return {"error": f"Failed to categorize transcription: {str(e)}"}
 
-def categorize_transcription(transcription_string: str, user_id: str):
-    # TODO: Implement transcription categorization
-    model_to_use = get_user_model_from_db(user_id)
-    if model_to_use == "openai":
-        # TODO: Implement OpenAI categorization
-        pass
-    elif model_to_use == "anthropic":
-        # TODO: Implement Anthropic categorization
-        pass
-
 
 def get_user_model_from_db(user_id: str) -> Literal["openai", "anthropic"]:
     """
@@ -85,17 +79,41 @@ def get_user_model_from_db(user_id: str) -> Literal["openai", "anthropic"]:
 
 
 @app.route('/transcribe', methods=['POST'])
-def transcribe_audio():
-    result = process_transcription("xyz", "abcde")
+def transcribe_audio(request):
+    req_data = request.json
+    job_id = req_data["id"]
+    audio = req_data["audio"]  # Base64-encoded or bytes
+    provider = req_data["provider"]
+    tasks[job_id] = {
+        "status": "pending",
+        "transcription": None,
+        "category": None,
+        "progress": 0,
+    }
+    async def transcription_and_categorization_task():
+        transcription = process_transcription(job_id, audio)
+        categpry = categorize_transcription(job_id, transcription, provider, )
+        return jsonify({
+            "transcription": transcription,
+            "category":categpry,
+        })
+     # Schedule the transcription and categorization job
+    asyncio.create_task(transcription_and_categorization_task())
+    return jsonify({"task_id": job_id, "status": "pending"}), 202
 
-    # TODO: Implement categorization
-    # result = categorize_transcription(result, "user_id")
+@app.route('/status/<task_id>', methods=['GET'])
+def status(task_id):
+    # Check the status of a job
+    job = tasks.get(task_id)
+    if not job:
+        return jsonify({"error": "Task not found"}), 404
 
     return jsonify({
-        "transcription": result,
-        # TODO: Add category
+        "status": job["status"],
+        "progress": job["progress"],
+        "transcription": job["transcription"],
+        "category": job["category"],
     })
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=True)
